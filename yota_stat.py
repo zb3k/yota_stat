@@ -22,9 +22,19 @@ SVG_DIR    = SCRIPT_DIR + '/svg'
 DB_FILE    = SCRIPT_DIR + '/db.sqlite'
 
 PING_HOST  = "www.google.com"
-PING_COUNT = 1
+PING_COUNT = 3
+
+LIVE_HOURS = 6
 
 ACTION = sys.argv[1] if len(sys.argv) > 1 else False
+
+###########################################################################
+
+def drange(start, stop, step):
+	r = start
+	while r < stop:
+		yield r
+		r += step
 
 ###########################################################################
 
@@ -110,7 +120,7 @@ def get_yota_stat():
 
 ###########################################################################
 
-def get_yota_stat_avg(iterations = 3):
+def get_yota_stat_avg(iterations = 5):
 	avg_stat = {}
 	while iterations > 0:
 		stat = get_yota_stat()
@@ -178,7 +188,7 @@ def svg_save(svg_filename, xml_content):
 
 ###########################################################################
 
-def make_chart(sql='', type='line', config={}, file=None, keys=None, height=0, rotate_lable=False, legend=True, y_labels=True, x_labels=True):
+def make_chart(sql='', type='line', config={}, file=None, keys=None, height=0, range=None, rotate_lable=False, legend=True, y_labels=False, show_y_labels=True, show_x_labels=True, debug = False):
 	cur.execute(sql)
 	data = {}
 	while True:
@@ -188,21 +198,28 @@ def make_chart(sql='', type='line', config={}, file=None, keys=None, height=0, r
 		for k in row:
 			if k not in data:
 				data[k] = []
-			data[k].append(row[k])
+			val = False if row[k] == None else row[k]
+			data[k].append(val)
+	if debug:
+		print data
 
 	conf                  = pygal.Config()
 	conf.width            = IMAGE_WIDTH
 	conf.height           = height if height else IMAGE_WIDTH/3
 	conf.show_legend      = legend
-	conf.show_y_labels    = y_labels
-	conf.show_x_labels    = x_labels
+	conf.show_y_labels    = show_y_labels
+	conf.show_x_labels    = show_x_labels
 	conf.human_readable   = True
 	conf.legend_at_bottom = True
 	conf.fill             = True
+	conf.spacing          = 10
+	conf.margin          = 20
 	# conf.style          = pygal.style.DarkSolarizedStyle
 
 	if rotate_lable:
 		conf.x_label_rotation = rotate_lable
+	if range:
+		conf.range = range
 
 	if type == 'Line':
 		chart = pygal.Line(conf)
@@ -214,6 +231,9 @@ def make_chart(sql='', type='line', config={}, file=None, keys=None, height=0, r
 		chart = pygal.StackedBar(conf)
 
 	chart.x_labels = data['d']
+
+	if y_labels:
+		chart.y_labels = y_labels
 
 	if keys == None:
 		keys = data.keys()
@@ -250,8 +270,6 @@ if ACTION == False:
 ###########################################################################
 
 if ACTION == False or generate_img:
-	live_hours = 3
-
 	now = datetime.datetime.now()
 
 	gen_live = True
@@ -278,12 +296,12 @@ if ACTION == False or generate_img:
 	if gen_live:
 		make_chart(
 			file         = 'live_internet_status',
-			sql          = "SELECT strftime('%H:%M', `date`) d, SUM(ping_status) valid, COUNT(ping_status) - SUM(ping_status) AS errors, 1 - COUNT(ping_status) AS lost  FROM log WHERE `date` > (SELECT DATETIME('now', '-"+str(live_hours)+" hour', 'localtime')) GROUP BY d ORDER BY id",
+			sql          = "SELECT strftime('%H:%M', `date`) d, SUM(ping_status) valid, COUNT(ping_status) - SUM(ping_status) AS errors, 1 - COUNT(ping_status) AS lost  FROM log WHERE `date` > (SELECT DATETIME('now', '-"+str(LIVE_HOURS)+" hour', 'localtime')) GROUP BY d ORDER BY id",
 			type         = 'StackedBar',
 			height       = 150,
-			rotate_lable = 45,
+			rotate_lable = 60,
 			keys         = ['errors', 'valid', 'lost'],
-			y_labels     = False,
+			show_y_labels     = False,
 			legend       = False
 		)
 	if gen_day:
@@ -292,7 +310,7 @@ if ACTION == False or generate_img:
 			sql      = "SELECT strftime('%H', `date`) d, SUM(ping_status) valid, COUNT(ping_status) - SUM(ping_status) AS errors, 12 - COUNT(ping_status) AS lost FROM log WHERE `date` > (SELECT DATETIME('now', '-1 day', 'localtime')) GROUP BY d ORDER BY id",
 			type     = 'StackedBar',
 			height   = 150,
-			y_labels = False,
+			show_y_labels = False,
 			keys     = ['errors', 'valid', 'lost'],
 			legend   = False
 		)
@@ -302,7 +320,7 @@ if ACTION == False or generate_img:
 			sql      = "SELECT strftime('%d.%m', `date`) d, SUM(ping_status) valid, COUNT(ping_status) - SUM(ping_status) AS errors FROM log WHERE `date` > (SELECT DATETIME('now', '-7 day', 'localtime')) GROUP BY d ORDER BY id",
 			type     = 'StackedBar',
 			height   = 150,
-			y_labels = False,
+			show_y_labels = False,
 			keys     = ['errors', 'valid'],
 			legend   = False
 		)
@@ -311,9 +329,9 @@ if ACTION == False or generate_img:
 	if gen_live:
 		make_chart(
 			file         = 'live_ping',
-			sql          = "SELECT strftime('%H:%M', `date`) d, cast(AVG(ping) as int) ping FROM log WHERE `date` > (SELECT DATETIME('now', '-"+str(live_hours)+" hour', 'localtime')) GROUP BY d ORDER BY id",
+			sql          = "SELECT strftime('%H:%M', `date`) d, cast(AVG(ping) as int) ping FROM log WHERE `date` > (SELECT DATETIME('now', '-"+str(LIVE_HOURS)+" hour', 'localtime')) GROUP BY d ORDER BY id",
 			type         = 'Bar',
-			rotate_lable = 45,
+			rotate_lable = 60,
 			legend       = False
 		)
 	if gen_day:
@@ -336,9 +354,9 @@ if ACTION == False or generate_img:
 	if gen_live:
 		make_chart(
 			file         = 'live_sinr',
-			sql          = "SELECT strftime('%H:%M', `date`) d, AVG(SINR) SINR FROM log WHERE `date` > (SELECT DATETIME('now', '-"+str(live_hours)+" hour', 'localtime')) GROUP BY d ORDER BY id",
+			sql          = "SELECT strftime('%H:%M', `date`) d, AVG(SINR) SINR FROM log WHERE `date` > (SELECT DATETIME('now', '-"+str(LIVE_HOURS)+" hour', 'localtime')) GROUP BY d ORDER BY id",
 			type         = 'Bar',
-			rotate_lable = 45,
+			rotate_lable = 60,
 			legend       = False,
 		)
 	if gen_day:
@@ -360,29 +378,41 @@ if ACTION == False or generate_img:
 	# RSSI RSRP
 	if gen_live:
 		make_chart(
-			file   = 'live_rssi_rsrp',
-			sql    = "SELECT strftime('%H:%M', `date`) d, AVG(RSSI) RSSI, AVG(RSRP) RSRP FROM log WHERE `date` > (SELECT DATETIME('now', '-"+str(live_hours)+" hour', 'localtime')) GROUP BY d ORDER BY id",
-			type   = 'Bar',
-			rotate_lable = 45,
+			file         = 'live_rssi_rsrp',
+			sql          = "SELECT strftime('%H:%M', `date`) d, AVG(RSSI) RSSI, AVG(RSRP) RSRP FROM log WHERE `date` > (SELECT DATETIME('now', '-"+str(LIVE_HOURS)+" hour', 'localtime')) GROUP BY d ORDER BY id",
+			type         = 'Line',
+			rotate_lable = 60,
+			keys         = ['RSRP', 'RSSI'],
 		)
 	if gen_day:
 		make_chart(
-			file   = 'day_rssi_rsrp',
-			sql    = "SELECT strftime('%H', `date`) d, AVG(RSSI) RSSI, AVG(RSRP) RSRP FROM log WHERE `date` > (SELECT DATETIME('now', '-1 day', 'localtime')) GROUP BY d ORDER BY id",
-			type   = 'Bar',
+			file = 'day_rssi_rsrp',
+			sql  = "SELECT strftime('%H', `date`) d, AVG(RSSI) RSSI, AVG(RSRP) RSRP FROM log WHERE `date` > (SELECT DATETIME('now', '-1 day', 'localtime')) GROUP BY d ORDER BY id",
+			type = 'Line',
+			# range = (-100, -50),
+			# y_labels = drange(-100, -50, 5),
+			keys = ['RSRP', 'RSSI'],
 		)
 	if gen_week:
 		make_chart(
 			file   = 'week_rssi_rsrp',
 			sql    = "SELECT strftime('%d.%m', `date`) d, AVG(RSSI) RSSI, AVG(RSRP) RSRP FROM log WHERE `date` > (SELECT DATETIME('now', '-7 day', 'localtime')) GROUP BY d ORDER BY id",
 			type   = 'Bar',
+			keys = ['RSRP', 'RSSI'],
 		)
 
 ###########################################################################
 
 if ACTION == 'debug':
 	print 'debug'
-	print get_yota_stat_avg()
+	make_chart(
+		debug        = True,
+		file         = 'live_rssi_rsrp',
+		sql          = "SELECT strftime('%H:%M', `date`) d, AVG(RSSI) RSSI, AVG(RSRP) RSRP FROM log WHERE `date` > (SELECT DATETIME('now', '-"+str(LIVE_HOURS)+" hour', 'localtime')) GROUP BY d ORDER BY id",
+		type         = 'Line',
+		rotate_lable = 60,
+		keys         = ['RSRP', 'RSSI'],
+	)
 
 ###########################################################################
 
